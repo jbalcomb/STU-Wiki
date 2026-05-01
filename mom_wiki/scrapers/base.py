@@ -5,7 +5,7 @@ from typing import Generator
 import logging
 
 from ..models import Source, Document, Node, ScrapeJob
-from ..storage import CorpusStorage
+from ..storage import CorpusStorage, SaveResult
 
 logger = logging.getLogger(__name__)
 
@@ -66,42 +66,34 @@ class BaseScraper(ABC):
 
         try:
             for scraped in self.scrape(source):
-                # Compute checksum for dedup
-                checksum = self.storage.compute_checksum(scraped.content)
-
-                # Check if content already exists (idempotent)
-                existing = self.storage.get_document_by_checksum(source.id, checksum)
-                if existing:
-                    job.documents_unchanged += 1
-                    self.logger.debug(f"Unchanged: {scraped.title}")
-                    continue
-
-                # Create document
+                # Build document; storage handles identity + dedup
                 document = Document(
                     source_id=source.id,
                     title=scraped.title,
                     content_path="",  # Will be set by save_document
                     url=scraped.url,
                     file_path=scraped.file_path,
-                    checksum=checksum,
+                    checksum=self.storage.compute_checksum(scraped.content),
                 )
 
-                # Add metadata
                 if scraped.metadata:
                     document.metadata.tags = scraped.metadata.get("tags", [])
                     document.metadata.author = scraped.metadata.get("author")
                     document.metadata.publish_date = scraped.metadata.get("publish_date")
                     document.metadata.custom = scraped.metadata.get("custom", {})
 
-                # Save document and content
-                is_new = self.storage.save_document(document, scraped.content)
+                result = self.storage.save_document(document, scraped.content)
 
-                if is_new:
-                    job.documents_created += 1
-                    self.logger.info(f"Created: {scraped.title}")
-                else:
+                if result == SaveResult.UNCHANGED:
+                    job.documents_unchanged += 1
+                    self.logger.debug(f"Unchanged: {scraped.title}")
+                    continue
+                elif result == SaveResult.UPDATED:
                     job.documents_updated += 1
                     self.logger.info(f"Updated: {scraped.title}")
+                else:
+                    job.documents_created += 1
+                    self.logger.info(f"Created: {scraped.title}")
 
                 # Create/update nodes
                 for node in scraped.nodes:

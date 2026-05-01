@@ -208,7 +208,7 @@
         }
 
         try {
-            await fetch(`${API.baseUrl}/sources/${sourceId}`, { method: 'DELETE' });
+            await API.deleteSource(sourceId);
             showToast('Source deleted', 'success');
             await loadSources();
             await loadStats();

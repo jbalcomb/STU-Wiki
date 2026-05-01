@@ -55,6 +55,21 @@ const API = {
         return response.json();
     },
 
+    /**
+     * Make a DELETE request to the API.
+     * @param {string} endpoint - API endpoint
+     * @returns {Promise<Object>} Response data
+     */
+    async delete(endpoint) {
+        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+        return response.json();
+    },
+
     // Search
     async search(query, options = {}) {
         return this.get('/search', { q: query, ...options });
@@ -106,6 +121,10 @@ const API = {
 
     async triggerScrape(sourceId) {
         return this.post(`/sources/${sourceId}/scrape`);
+    },
+
+    async deleteSource(sourceId) {
+        return this.delete(`/sources/${sourceId}`);
     },
 
     async getJob(jobId) {

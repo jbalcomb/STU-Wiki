@@ -206,7 +206,8 @@
         try {
             const fullNode = await API.getNode(node.id);
             if (fullNode.content) {
-                detailBody.innerHTML = marked ? marked.parse(fullNode.content) : `<p>${fullNode.content}</p>`;
+                const hasMarked = typeof marked !== 'undefined' && marked.parse;
+                detailBody.innerHTML = hasMarked ? marked.parse(fullNode.content) : `<p>${fullNode.content}</p>`;
             }
 
             // Load related nodes
