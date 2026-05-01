@@ -17,7 +17,7 @@
     "folder_name": "MoMWikiCorpus"
   },
   "search": {
-    "index_file": "corpus/search-index.json",
+    "index_file": "corpus/search_index.json",
     "default_limit": 20,
     "max_limit": 100
   }

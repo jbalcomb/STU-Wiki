@@ -1,6 +1,10 @@
 # REST API Contract
 
-**Base URL**: `http://localhost:8000/api/v1` (local development)
+**Base URL**: `http://localhost:8000` (local development)
+
+> Endpoints are mounted at the root. There is no `/api/v1` prefix today; if
+> versioning is added later, this contract should be updated alongside the
+> route prefix change.
 
 ## Endpoints
 
