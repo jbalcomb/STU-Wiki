@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="150" viewBox="0 0 420 150">
+    <defs>
+        <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#1a1a2e"/>
+            <stop offset="100%" style="stop-color:#16213e"/>
+        </linearGradient>
+    </defs>
+
+    <!-- Background -->
+    <rect width="420" height="150" fill="url(#bg-gradient)" rx="10"/>
+
+    <!-- Title -->
+    <text x="210" y="25" text-anchor="middle" fill="#4169E1" font-family="sans-serif" font-size="14" font-weight="bold">
+        Master of Magic Wiki Corpus
+    </text>
+
+    <!-- Stats Row -->
+    <g transform="translate(0, 35)">
+        <text x="70" y="15" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="20" font-weight="bold">
+            0
+            <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" repeatCount="indefinite"/>
+        </text>
+        <text x="70" y="30" text-anchor="middle" fill="#888" font-family="sans-serif" font-size="10">Documents</text>
+
+        <text x="210" y="15" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="20" font-weight="bold">
+            0
+            <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" begin="0.5s" repeatCount="indefinite"/>
+        </text>
+        <text x="210" y="30" text-anchor="middle" fill="#888" font-family="sans-serif" font-size="10">Nodes</text>
+
+        <text x="350" y="15" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="20" font-weight="bold">
+            1
+            <animate attributeName="opacity" values="0.7;1;0.7" dur="3s" begin="1s" repeatCount="indefinite"/>
+        </text>
+        <text x="350" y="30" text-anchor="middle" fill="#888" font-family="sans-serif" font-size="10">Sources</text>
+    </g>
+
+    <!-- Realm Circles -->
+    
+        <g transform="translate(50, 80)">
+            <circle cx="0" cy="0" r="20" fill="#FFD700" opacity="0.8">
+                <animate attributeName="r" values="18;22;18" dur="2s" begin="0.0s" repeatCount="indefinite"/>
+            </circle>
+            <text x="0" y="5" text-anchor="middle" fill="#000" font-size="10" font-weight="bold">0</text>
+            <text x="0" y="35" text-anchor="middle" fill="#888" font-size="8">Life</text>
+        </g>
+        <g transform="translate(110, 80)">
+            <circle cx="0" cy="0" r="20" fill="#800080" opacity="0.8">
+                <animate attributeName="r" values="18;22;18" dur="2s" begin="0.3s" repeatCount="indefinite"/>
+            </circle>
+            <text x="0" y="5" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">0</text>
+            <text x="0" y="35" text-anchor="middle" fill="#888" font-size="8">Death</text>
+        </g>
+        <g transform="translate(170, 80)">
+            <circle cx="0" cy="0" r="20" fill="#228B22" opacity="0.8">
+                <animate attributeName="r" values="18;22;18" dur="2s" begin="0.6s" repeatCount="indefinite"/>
+            </circle>
+            <text x="0" y="5" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">0</text>
+            <text x="0" y="35" text-anchor="middle" fill="#888" font-size="8">Nature</text>
+        </g>
+        <g transform="translate(230, 80)">
+            <circle cx="0" cy="0" r="20" fill="#4169E1" opacity="0.8">
+                <animate attributeName="r" values="18;22;18" dur="2s" begin="0.8999999999999999s" repeatCount="indefinite"/>
+            </circle>
+            <text x="0" y="5" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">0</text>
+            <text x="0" y="35" text-anchor="middle" fill="#888" font-size="8">Sorcery</text>
+        </g>
+        <g transform="translate(290, 80)">
+            <circle cx="0" cy="0" r="20" fill="#FF4500" opacity="0.8">
+                <animate attributeName="r" values="18;22;18" dur="2s" begin="1.2s" repeatCount="indefinite"/>
+            </circle>
+            <text x="0" y="5" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">0</text>
+            <text x="0" y="35" text-anchor="middle" fill="#888" font-size="8">Chaos</text>
+        </g>
+        <g transform="translate(350, 80)">
+            <circle cx="0" cy="0" r="20" fill="#C0C0C0" opacity="0.8">
+                <animate attributeName="r" values="18;22;18" dur="2s" begin="1.5s" repeatCount="indefinite"/>
+            </circle>
+            <text x="0" y="5" text-anchor="middle" fill="#000" font-size="10" font-weight="bold">0</text>
+            <text x="0" y="35" text-anchor="middle" fill="#888" font-size="8">Arcane</text>
+        </g>
+
+</svg>

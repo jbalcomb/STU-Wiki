@@ -1,0 +1,285 @@
+/* Master of Magic Wiki - 3D Graph Explorer Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-dark: #1a1a2e;
+    --bg-panel: #16213e;
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --accent-life: #FFD700;
+    --accent-death: #800080;
+    --accent-nature: #228B22;
+    --accent-sorcery: #4169E1;
+    --accent-chaos: #FF4500;
+    --accent-arcane: #C0C0C0;
+    --border-color: #3a3a5e;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    overflow: hidden;
+    height: 100vh;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* Header */
+#header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background-color: var(--bg-panel);
+    border-bottom: 1px solid var(--border-color);
+    z-index: 100;
+}
+
+#header h1 {
+    font-size: 1.25rem;
+    color: var(--accent-arcane);
+    white-space: nowrap;
+}
+
+#search-container {
+    display: flex;
+    flex: 1;
+    max-width: 400px;
+}
+
+#search-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px 0 0 4px;
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+#search-input:focus {
+    outline: none;
+    border-color: var(--accent-sorcery);
+}
+
+#search-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-left: none;
+    border-radius: 0 4px 4px 0;
+    background-color: var(--accent-sorcery);
+    color: white;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+#search-btn:hover {
+    background-color: #5179f1;
+}
+
+#filter-container {
+    display: flex;
+    gap: 0.5rem;
+}
+
+#filter-container select {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+/* Main Content */
+#main {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+}
+
+#graph-container {
+    width: 100%;
+    height: 100%;
+}
+
+/* Detail Panel */
+#detail-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 350px;
+    height: 100%;
+    background-color: var(--bg-panel);
+    border-left: 1px solid var(--border-color);
+    padding: 1rem;
+    overflow-y: auto;
+    transition: transform 0.3s ease;
+    z-index: 50;
+}
+
+#detail-panel.hidden {
+    transform: translateX(100%);
+}
+
+#close-panel {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+#close-panel:hover {
+    color: var(--text-primary);
+}
+
+#detail-content {
+    padding-top: 1rem;
+}
+
+#detail-title {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+    color: var(--accent-arcane);
+}
+
+#detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+#detail-meta .tag {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    background-color: var(--bg-dark);
+}
+
+#detail-meta .tag.realm-life { background-color: var(--accent-life); color: #000; }
+#detail-meta .tag.realm-death { background-color: var(--accent-death); color: #fff; }
+#detail-meta .tag.realm-nature { background-color: var(--accent-nature); color: #fff; }
+#detail-meta .tag.realm-sorcery { background-color: var(--accent-sorcery); color: #fff; }
+#detail-meta .tag.realm-chaos { background-color: var(--accent-chaos); color: #fff; }
+#detail-meta .tag.realm-arcane { background-color: var(--accent-arcane); color: #000; }
+
+#detail-body {
+    margin-bottom: 1rem;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
+
+#detail-body h3 {
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+#detail-related {
+    border-top: 1px solid var(--border-color);
+    padding-top: 1rem;
+}
+
+#detail-related h3 {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+#detail-related ul {
+    list-style: none;
+}
+
+#detail-related li {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+}
+
+#detail-related li:hover {
+    color: var(--accent-sorcery);
+}
+
+/* Footer */
+#footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: var(--bg-panel);
+    border-top: 1px solid var(--border-color);
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+#stats {
+    display: flex;
+    gap: 1rem;
+}
+
+#controls-hint {
+    font-style: italic;
+}
+
+/* Loading State */
+.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+}
+
+.loading::after {
+    content: "Loading...";
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+/* Search Results Highlight */
+.node-highlight {
+    animation: glow 1s ease-in-out infinite alternate;
+}
+
+@keyframes glow {
+    from { filter: brightness(1); }
+    to { filter: brightness(1.5); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #header {
+        flex-wrap: wrap;
+    }
+
+    #search-container {
+        order: 3;
+        width: 100%;
+        max-width: none;
+    }
+
+    #detail-panel {
+        width: 100%;
+    }
+}

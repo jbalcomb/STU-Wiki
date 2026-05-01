@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master of Magic Wiki - Admin Panel</title>
+    <link rel="stylesheet" href="./admin.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <h1>MoM Wiki Admin</h1>
+            <nav>
+                <a href="./">Graph View</a>
+                <a href="./admin.html" class="active">Admin</a>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main id="main">
+            <!-- Add Source Form -->
+            <section id="add-source-section">
+                <h2>Add Source</h2>
+                <form id="add-source-form">
+                    <div class="form-group">
+                        <label for="source-name">Name</label>
+                        <input type="text" id="source-name" required placeholder="MoM Wiki - Spells">
+                    </div>
+                    <div class="form-group">
+                        <label for="source-type">Type</label>
+                        <select id="source-type" required>
+                            <option value="web">Web (URL)</option>
+                            <option value="pdf">PDF File</option>
+                            <option value="lbx">LBX Binary</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="source-location">Location</label>
+                        <input type="text" id="source-location" required placeholder="https://masterofmagic.fandom.com/wiki/Spells">
+                    </div>
+                    <button type="submit" id="add-source-btn">Add Source</button>
+                </form>
+            </section>
+
+            <!-- Sources List -->
+            <section id="sources-section">
+                <h2>Configured Sources</h2>
+                <div id="sources-list">
+                    <p class="loading">Loading sources...</p>
+                </div>
+            </section>
+
+            <!-- Scrape Jobs -->
+            <section id="jobs-section">
+                <h2>Recent Scrape Jobs</h2>
+                <div id="jobs-list">
+                    <p class="loading">Loading jobs...</p>
+                </div>
+            </section>
+
+            <!-- Corpus Stats -->
+            <section id="stats-section">
+                <h2>Corpus Statistics</h2>
+                <div id="corpus-stats">
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-documents">-</span>
+                        <span class="stat-label">Documents</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-nodes">-</span>
+                        <span class="stat-label">Nodes</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-sources">-</span>
+                        <span class="stat-label">Sources</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-relationships">-</span>
+                        <span class="stat-label">Relationships</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Status Messages -->
+        <div id="toast" class="hidden">
+            <span id="toast-message"></span>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="./api.js"></script>
+    <script src="./admin.js"></script>
+</body>
+</html>
