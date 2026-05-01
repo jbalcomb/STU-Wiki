@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 
 from .routes import router
 
@@ -47,19 +47,17 @@ async def health_check():
     return {"status": "healthy"}
 
 
-# Serve frontend static files
+# Serve the frontend.
+#
+# Mounting at /app with html=True means /app/ serves index.html and the
+# browser can resolve relative ./styles.css, ./api.js, ./admin.html paths
+# against /app/. The same files (with the same relative paths) also work
+# under GitHub Pages serving the docs/ directory directly.
 if FRONTEND_DIR.exists():
-    @app.get("/app")
-    @app.get("/app/")
-    async def serve_index():
-        """Serve the main graph explorer."""
-        return FileResponse(FRONTEND_DIR / "index.html")
+    app.mount("/app", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
 
-    @app.get("/admin")
-    @app.get("/admin/")
-    async def serve_admin():
-        """Serve the admin panel."""
-        return FileResponse(FRONTEND_DIR / "admin.html")
-
-    # Mount static files for CSS/JS
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/", include_in_schema=False)
+    async def admin_redirect():
+        """Backward-compat redirect from the old /admin URL."""
+        return RedirectResponse("/app/admin.html")
