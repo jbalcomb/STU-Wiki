@@ -1,0 +1,26 @@
+{
+  "name": "mom-wiki-frontend",
+  "version": "0.1.0",
+  "description": "3D Graph Visualization for Master of Magic Wiki Corpus",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:pages": "cp -r src/* ../docs/",
+    "preview": "vite preview",
+    "test": "jest"
+  },
+  "dependencies": {
+    "3d-force-graph": "^1.73.0",
+    "three": "^0.161.0",
+    "lunr": "^2.3.9"
+  },
+  "devDependencies": {
+    "vite": "^5.1.0",
+    "jest": "^29.7.0",
+    "@babel/preset-env": "^7.23.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

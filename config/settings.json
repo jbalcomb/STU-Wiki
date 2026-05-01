@@ -1,0 +1,24 @@
+{
+  "corpus_dir": "corpus",
+  "data_dir": "data",
+  "sources_file": "sources.json",
+  "api": {
+    "host": "localhost",
+    "port": 8000,
+    "cors_origins": ["http://localhost:3000", "http://localhost:5173"]
+  },
+  "scraper": {
+    "rate_limit_seconds": 1.0,
+    "user_agent": "MoMWikiCorpus/0.1.0 (+https://github.com/simtexwiki)",
+    "respect_robots_txt": true
+  },
+  "drive": {
+    "credentials_file": "config/google-credentials.json",
+    "folder_name": "MoMWikiCorpus"
+  },
+  "search": {
+    "index_file": "corpus/search-index.json",
+    "default_limit": 20,
+    "max_limit": 100
+  }
+}
