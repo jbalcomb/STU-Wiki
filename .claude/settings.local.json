@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(py -m mom_wiki.cli status:*)",
+      "Bash(py -m mom_wiki.cli:*)",
+      "Bash(curl:*)",
+      "Bash(py -c:*)",
+      "Bash(grep:*)",
+      "Bash(dir /s /b \"C:\\Users\\jbalcomb\\source\\repos\\simtexwiki\\frontend\")",
+      "Bash(taskkill:*)"
+    ]
+  }
+}
