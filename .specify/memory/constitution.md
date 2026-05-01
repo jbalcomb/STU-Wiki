@@ -22,6 +22,10 @@ Every piece of content maintains provenance: original source, scrape date, and t
 
 Store extracted text in plain/markdown format for searchability. Binary artifacts (images, attachments) stored separately with references. Full-text search is a first-class feature.
 
+### VI. Extraction Fidelity
+
+Extracted text is the primary representation of every source. Binary assets (figures, diagrams, tables, scans) are secondary — attached with provenance and referenced inline at their position in the text. Whole-page or whole-document renderings are a last-resort fallback, used only when no text can be recovered (e.g. an image-only PDF without an OCR layer); they are never the default. Decorative artifacts (drop caps, ornamental flourishes, page borders) are not assets — extractors must filter them out by size or other heuristic so they do not pollute the corpus.
+
 ## Data Sources
 
 - **Web**: HTML pages via HTTP/HTTPS
@@ -32,4 +36,4 @@ Store extracted text in plain/markdown format for searchability. Binary artifact
 
 Constitution changes require updating this file and notifying collaborators.
 
-**Version**: 1.0.0 | **Ratified**: 2026-04-16 | **Last Amended**: 2026-04-16
+**Version**: 1.1.0 | **Ratified**: 2026-04-16 | **Last Amended**: 2026-05-01
