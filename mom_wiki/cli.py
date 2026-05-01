@@ -278,6 +278,54 @@ def cmd_mcp_serve(args):
     asyncio.run(serve())
 
 
+def cmd_extract_preview(args):
+    """Run the new PDF extraction logic and write results to a temp directory.
+
+    Does NOT touch the corpus. Used during feature 002 calibration so a human
+    can walk through extracted output page by page and adjust thresholds.
+    """
+    from .scrapers.pdf_extraction import extract_pdf, write_extraction
+
+    pdf_path = Path(args.pdf_path)
+    if not pdf_path.exists():
+        print(f"PDF not found: {pdf_path}", file=sys.stderr)
+        return 1
+
+    page_range = None
+    if args.pages:
+        spec = args.pages.strip()
+        if "-" in spec:
+            start_str, end_str = spec.split("-", 1)
+            page_range = (int(start_str), int(end_str))
+        else:
+            page_num = int(spec)
+            page_range = (page_num, page_num)
+
+    output_dir = Path(args.output) if args.output else Path(f"preview-{pdf_path.stem}")
+
+    print(f"Extracting {pdf_path.name}...", file=sys.stderr)
+    if page_range:
+        print(f"  pages {page_range[0]}-{page_range[1]}", file=sys.stderr)
+    print(f"  min image dimension: {args.min_image_dim}px", file=sys.stderr)
+
+    result = extract_pdf(
+        pdf_path,
+        page_range=page_range,
+        min_image_dim=args.min_image_dim,
+    )
+
+    markdown_path, images_dir = write_extraction(result, output_dir)
+
+    print("", file=sys.stderr)
+    print(f"Pages extracted:  {len(result.pages)}", file=sys.stderr)
+    print(f"Embedded images:  {result.total_images}", file=sys.stderr)
+    print(f"Fallback renders: {result.total_fallbacks}", file=sys.stderr)
+    print(f"", file=sys.stderr)
+    print(f"Markdown: {markdown_path}", file=sys.stderr)
+    print(f"Images:   {images_dir}", file=sys.stderr)
+    return 0
+
+
 def cmd_generate_stats(args):
     """Generate animated SVG stats badge."""
     storage = CorpusStorage(args.base_dir)
@@ -458,6 +506,28 @@ def main():
     # mcp-serve command
     mcp_parser = subparsers.add_parser("mcp-serve", help="Start MCP server")
     mcp_parser.set_defaults(func=cmd_mcp_serve)
+
+    # extract-preview command (feature 002 calibration tool)
+    preview_parser = subparsers.add_parser(
+        "extract-preview",
+        help="Preview new PDF extraction without writing to corpus",
+    )
+    preview_parser.add_argument("pdf_path", help="Path to PDF file")
+    preview_parser.add_argument(
+        "--pages",
+        help="Page range to extract, 1-indexed (e.g. '1-10' or '5'). Default: all pages.",
+    )
+    preview_parser.add_argument(
+        "--output",
+        help="Output directory (default: preview-<pdf-stem>/)",
+    )
+    preview_parser.add_argument(
+        "--min-image-dim",
+        type=int,
+        default=200,
+        help="Minimum image dimension (px) to be considered non-decorative (default: 200)",
+    )
+    preview_parser.set_defaults(func=cmd_extract_preview)
 
     # generate-stats command
     stats_parser = subparsers.add_parser("generate-stats", help="Generate stats SVG badge")
