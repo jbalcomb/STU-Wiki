@@ -3,6 +3,7 @@
 import json
 import hashlib
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,13 @@ from ..models import (
     Source, Document, Node, Relationship, ScrapeJob,
     RelationshipType
 )
+
+
+class SaveResult(str, Enum):
+    """Result of a save_document call."""
+    CREATED = "created"
+    UPDATED = "updated"
+    UNCHANGED = "unchanged"
 
 
 class CorpusStorage:
@@ -81,25 +89,52 @@ class CorpusStorage:
                 return Document.model_validate(doc_data)
         return None
 
-    def save_document(self, document: Document, content: str) -> bool:
-        """
-        Save a document with checksum dedup.
-        Returns True if created/updated, False if unchanged.
-        """
-        # Check for existing document with same checksum
-        existing = self.get_document_by_checksum(document.source_id, document.checksum)
-        if existing:
-            return False  # Unchanged
+    def find_document_by_identifier(
+        self,
+        source_id: str,
+        url: Optional[str] = None,
+        file_path: Optional[str] = None,
+    ) -> Optional[Document]:
+        """Find an existing document for the same source by url or file_path."""
+        if not url and not file_path:
+            return None
+        for doc in self.list_documents(source_id=source_id):
+            if url and doc.url == url:
+                return doc
+            if file_path and doc.file_path == file_path:
+                return doc
+        return None
 
-        # Save document metadata
+    def save_document(self, document: Document, content: str) -> SaveResult:
+        """
+        Save a document with idempotent identity (source_id + url|file_path).
+
+        - If no existing doc matches: writes a new document, returns CREATED.
+        - If an existing doc matches and the checksum is identical: no-op,
+          returns UNCHANGED.
+        - If an existing doc matches but the checksum differs: updates the
+          existing document in place (preserving its id and created_at),
+          returns UPDATED.
+        """
+        existing = self.find_document_by_identifier(
+            document.source_id, document.url, document.file_path
+        )
+
+        if existing and existing.checksum == document.checksum:
+            return SaveResult.UNCHANGED
+
+        if existing:
+            # Update in place: preserve identity, refresh content + metadata
+            document.id = existing.id
+            document.created_at = existing.created_at
+            result = SaveResult.UPDATED
+        else:
+            result = SaveResult.CREATED
+
         docs_dir = self.corpus_dir / "documents"
         docs_dir.mkdir(parents=True, exist_ok=True)
         doc_file = docs_dir / f"{document.id}.json"
 
-        with open(doc_file, "w", encoding="utf-8") as f:
-            json.dump(document.model_dump(mode="json"), f, indent=2, default=str)
-
-        # Save content
         content_dir = self.corpus_dir / "content"
         content_dir.mkdir(parents=True, exist_ok=True)
         content_file = content_dir / f"{document.id}.md"
@@ -108,11 +143,10 @@ class CorpusStorage:
         with open(content_file, "w", encoding="utf-8") as f:
             f.write(content)
 
-        # Update document with content path
         with open(doc_file, "w", encoding="utf-8") as f:
             json.dump(document.model_dump(mode="json"), f, indent=2, default=str)
 
-        return True
+        return result
 
     def list_documents(self, source_id: Optional[str] = None) -> list[Document]:
         """List all documents, optionally filtered by source."""

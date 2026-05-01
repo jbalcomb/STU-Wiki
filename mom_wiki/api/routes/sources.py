@@ -151,16 +151,22 @@ async def delete_source(source_id: str):
     return {"status": "deleted", "id": source_id}
 
 
-def _run_scrape(source_id: str):
-    """Background task to run scraper."""
+def _run_scrape(source_id: str, job_id: str):
+    """Background task: run scraper, recording progress against the given job."""
     source = _storage.get_source(source_id)
-    if not source:
+    job = _storage.get_job(job_id)
+    if not source or not job:
         return
 
     try:
         scraper = get_scraper(source, _storage)
-        scraper.process_source(source)
+        scraper.process_source(source, job=job)
     except Exception as e:
+        # Belt-and-suspenders: process_source already handles its own errors,
+        # but if scraper construction itself blows up, mark the job + source.
+        job.add_error(str(e))
+        job.complete(success=False)
+        _storage.update_job(job)
         source.mark_failed(str(e))
         _storage.update_source(source)
 
@@ -176,13 +182,11 @@ async def trigger_scrape(source_id: str, background_tasks: BackgroundTasks):
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    # Create a job
     from ...models import ScrapeJob
     job = ScrapeJob(source_id=source_id)
     _storage.create_job(job)
 
-    # Run in background
-    background_tasks.add_task(_run_scrape, source_id)
+    background_tasks.add_task(_run_scrape, source_id, job.id)
 
     return {
         "status": "started",

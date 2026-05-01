@@ -18,11 +18,15 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# CORS middleware for frontend access
+# CORS middleware for frontend access.
+# Browsers reject `Access-Control-Allow-Origin: *` when credentials are
+# allowed, so the wildcard here forces allow_credentials=False. If you need
+# credentialed cross-origin requests, replace allow_origins with an explicit
+# list of origins.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Local dev, tighten for production
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

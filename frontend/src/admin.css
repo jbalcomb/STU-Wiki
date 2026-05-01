@@ -155,17 +155,17 @@ button {
     border-left: 4px solid var(--accent-primary);
 }
 
-.source-card.status-active {
+/* Backend SourceStatus values: pending | success | failed. */
+.source-card.status-pending {
+    border-left-color: var(--accent-warning);
+}
+
+.source-card.status-success {
     border-left-color: var(--accent-success);
 }
 
-.source-card.status-error {
+.source-card.status-failed {
     border-left-color: var(--accent-danger);
-}
-
-.source-card.status-disabled {
-    border-left-color: var(--text-secondary);
-    opacity: 0.7;
 }
 
 .source-info {
