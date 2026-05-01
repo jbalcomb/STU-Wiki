@@ -52,13 +52,13 @@ Edit `sources.json`:
 ]
 ```
 
-Or use the CLI:
+Or use the CLI (positional args: `name type location`):
 
 ```bash
 python -m mom_wiki.cli add-source \
-  --type web \
-  --name "MoM Wiki - Chaos Spells" \
-  --url "https://masterofmagic.fandom.com/wiki/Category:Chaos_spells"
+  "MoM Wiki - Chaos Spells" \
+  web \
+  "https://masterofmagic.fandom.com/wiki/Category:Chaos_spells"
 ```
 
 ### 4. Run Your First Scrape
@@ -78,17 +78,17 @@ python -m mom_wiki.cli status
 
 ```bash
 # Start REST API on localhost:8000
-python -m mom_wiki.api
+python -m mom_wiki.cli serve
 
 # Test it
-curl http://localhost:8000/api/v1/search?q=fireball
+curl 'http://localhost:8000/search?q=fireball'
 ```
 
 ### 6. Start the MCP Server
 
 ```bash
 # Start MCP server (for AI agent integration)
-python -m mom_wiki.mcp_server
+python -m mom_wiki.cli mcp-serve
 
 # Or add to Claude Desktop config:
 # ~/.config/claude/claude_desktop_config.json
@@ -96,7 +96,7 @@ python -m mom_wiki.mcp_server
   "mcpServers": {
     "mom-wiki": {
       "command": "python",
-      "args": ["-m", "mom_wiki.mcp_server"],
+      "args": ["-m", "mom_wiki.cli", "mcp-serve"],
       "cwd": "/path/to/simtexwiki"
     }
   }
@@ -126,11 +126,11 @@ cp /path/to/mom/MAGIC.LBX data/lbx/
 cp /path/to/mom/SPELLDAT.LBX data/lbx/
 cp /path/to/mom/UNITDATA.LBX data/lbx/
 
-# Add as source
+# Add as source (positional args: name type location)
 python -m mom_wiki.cli add-source \
-  --type lbx \
-  --name "MoM Game Data" \
-  --path "data/lbx/"
+  "MoM Game Data" \
+  lbx \
+  "data/lbx/"
 
 # Parse and ingest
 python -m mom_wiki.cli scrape --source-id lbx-gamedata

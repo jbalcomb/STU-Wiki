@@ -176,7 +176,7 @@ Record of scraping execution.
 
 Pre-built search index for fast queries.
 
-**File**: `corpus/search-index.json`
+**File**: `corpus/search_index.json`
 
 ```json
 {
@@ -212,7 +212,7 @@ corpus/
 │   ├── {uuid}.json
 │   └── ...
 ├── relationships.json   # All relationships (single file)
-├── search-index.json    # Pre-built search index
+├── search_index.json    # Pre-built search index
 └── stats.json           # Corpus statistics for visualization
 
 sources.json             # Configured sources (root level)

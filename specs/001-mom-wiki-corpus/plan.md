@@ -106,7 +106,7 @@ corpus/                      # Scraped data (generated)
 ├── nodes/
 ├── jobs/
 ├── relationships.json
-└── search-index.json
+└── search_index.json
 
 data/                        # Source files (local)
 ├── lbx/                     # MoM LBX files
