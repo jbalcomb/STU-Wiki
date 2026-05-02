@@ -284,9 +284,13 @@ def cmd_extract_preview(args):
     Does NOT touch the corpus. Used during feature 002 calibration so a human
     can walk through extracted output page by page and adjust thresholds.
 
-    Two modes:
+    Three modes:
       - default: extract pages and write markdown + images to a preview dir.
       - --catalog: emit only the image-frequency table (no extraction).
+      - --debug-page N: dump page N's structural anatomy (text blocks,
+        drawings, images, with positions) — for designing recovery logic
+        for content that text extraction can't see (e.g. vector-drawn
+        illuminated initials).
     """
     from .scrapers.pdf_extraction import (
         build_catalog,
@@ -299,6 +303,9 @@ def cmd_extract_preview(args):
     if not pdf_path.exists():
         print(f"PDF not found: {pdf_path}", file=sys.stderr)
         return 1
+
+    if args.debug_page is not None:
+        return _debug_page(pdf_path, args.debug_page)
 
     if args.catalog:
         print(f"Cataloging {pdf_path.name}...", file=sys.stderr)
@@ -349,6 +356,88 @@ def cmd_extract_preview(args):
     print(f"Markdown: {markdown_path}", file=sys.stderr)
     print(f"Images:   {images_dir}", file=sys.stderr)
     return 0
+
+
+def _debug_page(pdf_path: Path, page_num: int) -> int:
+    """Dump a page's structural anatomy. Used to figure out where lost
+    content (e.g. vector-drawn illuminated initials) actually lives in
+    the PDF object model."""
+    try:
+        import fitz
+    except ImportError:
+        print("PyMuPDF not installed. Run: pip install PyMuPDF", file=sys.stderr)
+        return 1
+
+    doc = fitz.open(str(pdf_path))
+    try:
+        if page_num < 1 or page_num > len(doc):
+            print(f"Page {page_num} out of range (PDF has {len(doc)} pages)", file=sys.stderr)
+            return 1
+
+        page = doc[page_num - 1]
+        print(f"=== {pdf_path.name} — page {page_num} ===")
+        print(f"Page size: {page.rect.width:.0f} x {page.rect.height:.0f} pt")
+
+        print("")
+        print("--- TEXT BLOCKS ---")
+        blocks = page.get_text("blocks")
+        print(f"count: {len(blocks)}")
+        for i, block in enumerate(blocks):
+            x0, y0, x1, y1, text, block_no, block_type = block
+            type_label = "image-block" if block_type == 1 else "text-block"
+            preview = text[:80].replace("\n", " ").strip()
+            ellipsis = "..." if len(text) > 80 else ""
+            print(f"  [{i:>3}] {type_label}  bbox=({x0:>5.0f},{y0:>5.0f})-({x1:>5.0f},{y1:>5.0f})")
+            if preview:
+                print(f"        text: {preview!r}{ellipsis}")
+
+        print("")
+        print("--- DRAWINGS (vector graphics ops) ---")
+        drawings = page.get_drawings()
+        print(f"count: {len(drawings)}")
+        # Aggregate: cluster drawings by approximate bbox to surface initial-cap-shaped clusters
+        for i, drawing in enumerate(drawings[:40]):
+            rect = drawing.get("rect")
+            if rect is None:
+                continue
+            op = drawing.get("type", "?")
+            items = len(drawing.get("items", []))
+            fill = drawing.get("fill")
+            stroke = drawing.get("color")
+            print(
+                f"  [{i:>3}] type={op} bbox=({rect.x0:>5.0f},{rect.y0:>5.0f})-({rect.x1:>5.0f},{rect.y1:>5.0f}) "
+                f"items={items} fill={fill} stroke={stroke}"
+            )
+        if len(drawings) > 40:
+            print(f"  ... and {len(drawings) - 40} more")
+
+        print("")
+        print("--- EMBEDDED IMAGES ---")
+        images = page.get_images(full=True)
+        print(f"count: {len(images)}")
+        for i, img in enumerate(images):
+            # img tuple: (xref, smask, width, height, bpc, colorspace, alt, name, filter, ...)
+            xref = img[0]
+            width = img[2]
+            height = img[3]
+            filt = img[8] if len(img) > 8 else "?"
+            print(f"  [{i:>3}] xref={xref} {width}x{height} filter={filt}")
+
+        print("")
+        print("--- FONTS ---")
+        fonts = page.get_fonts(full=True)
+        print(f"count: {len(fonts)}")
+        for font in fonts:
+            # font tuple: (xref, ext, type, basefont, name, encoding, ...)
+            xref = font[0]
+            ftype = font[2] if len(font) > 2 else "?"
+            basefont = font[3] if len(font) > 3 else "?"
+            name = font[4] if len(font) > 4 else "?"
+            print(f"  xref={xref} type={ftype} basefont={basefont!r} name={name!r}")
+
+        return 0
+    finally:
+        doc.close()
 
 
 def cmd_generate_stats(args):
@@ -542,6 +631,12 @@ def main():
         "--catalog",
         action="store_true",
         help="Emit the image-frequency table only — no extraction, no files written.",
+    )
+    preview_parser.add_argument(
+        "--debug-page",
+        type=int,
+        default=None,
+        help="Dump structural anatomy of one page (text blocks, drawings, images, fonts).",
     )
     preview_parser.add_argument(
         "--catalog-top",
