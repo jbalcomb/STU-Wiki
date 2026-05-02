@@ -278,6 +278,168 @@ def cmd_mcp_serve(args):
     asyncio.run(serve())
 
 
+def cmd_extract_preview(args):
+    """Run the new PDF extraction logic and write results to a temp directory.
+
+    Does NOT touch the corpus. Used during feature 002 calibration so a human
+    can walk through extracted output page by page and adjust thresholds.
+
+    Three modes:
+      - default: extract pages and write markdown + images to a preview dir.
+      - --catalog: emit only the image-frequency table (no extraction).
+      - --debug-page N: dump page N's structural anatomy (text blocks,
+        drawings, images, with positions) — for designing recovery logic
+        for content that text extraction can't see (e.g. vector-drawn
+        illuminated initials).
+    """
+    from .scrapers.pdf_extraction import (
+        build_catalog,
+        extract_pdf,
+        format_catalog_table,
+        write_extraction,
+    )
+
+    pdf_path = Path(args.pdf_path)
+    if not pdf_path.exists():
+        print(f"PDF not found: {pdf_path}", file=sys.stderr)
+        return 1
+
+    if args.debug_page is not None:
+        return _debug_page(pdf_path, args.debug_page)
+
+    if args.catalog:
+        print(f"Cataloging {pdf_path.name}...", file=sys.stderr)
+        catalog = build_catalog(pdf_path)
+        print("")
+        print(format_catalog_table(catalog, top=args.catalog_top))
+        return 0
+
+    page_range = None
+    if args.pages:
+        spec = args.pages.strip()
+        if "-" in spec:
+            start_str, end_str = spec.split("-", 1)
+            page_range = (int(start_str), int(end_str))
+        else:
+            page_num = int(spec)
+            page_range = (page_num, page_num)
+
+    output_dir = Path(args.output) if args.output else Path(f"preview-{pdf_path.stem}")
+
+    print(f"Extracting {pdf_path.name}...", file=sys.stderr)
+    if page_range:
+        print(f"  pages {page_range[0]}-{page_range[1]}", file=sys.stderr)
+    print(f"  repetition threshold: {args.repetition_threshold}", file=sys.stderr)
+    print(f"  min image dimension:  {args.min_image_dim}px", file=sys.stderr)
+
+    result = extract_pdf(
+        pdf_path,
+        page_range=page_range,
+        repetition_threshold=args.repetition_threshold,
+        min_image_dim=args.min_image_dim,
+    )
+
+    markdown_path, images_dir = write_extraction(result, output_dir)
+
+    catalog = result.catalog
+    repeating_xrefs = sum(
+        1 for x, info in catalog.images.items()
+        if catalog.is_repeating(x, info.sha256, args.repetition_threshold)
+    ) if catalog else 0
+
+    print("", file=sys.stderr)
+    print(f"Pages extracted:        {len(result.pages)}", file=sys.stderr)
+    print(f"Embedded images kept:   {result.total_images}", file=sys.stderr)
+    print(f"Decoration filtered:    {repeating_xrefs} unique image(s) flagged as repeating", file=sys.stderr)
+    print(f"Fallback page renders:  {result.total_fallbacks}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print(f"Markdown: {markdown_path}", file=sys.stderr)
+    print(f"Images:   {images_dir}", file=sys.stderr)
+    return 0
+
+
+def _debug_page(pdf_path: Path, page_num: int) -> int:
+    """Dump a page's structural anatomy. Used to figure out where lost
+    content (e.g. vector-drawn illuminated initials) actually lives in
+    the PDF object model."""
+    try:
+        import fitz
+    except ImportError:
+        print("PyMuPDF not installed. Run: pip install PyMuPDF", file=sys.stderr)
+        return 1
+
+    doc = fitz.open(str(pdf_path))
+    try:
+        if page_num < 1 or page_num > len(doc):
+            print(f"Page {page_num} out of range (PDF has {len(doc)} pages)", file=sys.stderr)
+            return 1
+
+        page = doc[page_num - 1]
+        print(f"=== {pdf_path.name} — page {page_num} ===")
+        print(f"Page size: {page.rect.width:.0f} x {page.rect.height:.0f} pt")
+
+        print("")
+        print("--- TEXT BLOCKS ---")
+        blocks = page.get_text("blocks")
+        print(f"count: {len(blocks)}")
+        for i, block in enumerate(blocks):
+            x0, y0, x1, y1, text, block_no, block_type = block
+            type_label = "image-block" if block_type == 1 else "text-block"
+            preview = text[:80].replace("\n", " ").strip()
+            ellipsis = "..." if len(text) > 80 else ""
+            print(f"  [{i:>3}] {type_label}  bbox=({x0:>5.0f},{y0:>5.0f})-({x1:>5.0f},{y1:>5.0f})")
+            if preview:
+                print(f"        text: {preview!r}{ellipsis}")
+
+        print("")
+        print("--- DRAWINGS (vector graphics ops) ---")
+        drawings = page.get_drawings()
+        print(f"count: {len(drawings)}")
+        # Aggregate: cluster drawings by approximate bbox to surface initial-cap-shaped clusters
+        for i, drawing in enumerate(drawings[:40]):
+            rect = drawing.get("rect")
+            if rect is None:
+                continue
+            op = drawing.get("type", "?")
+            items = len(drawing.get("items", []))
+            fill = drawing.get("fill")
+            stroke = drawing.get("color")
+            print(
+                f"  [{i:>3}] type={op} bbox=({rect.x0:>5.0f},{rect.y0:>5.0f})-({rect.x1:>5.0f},{rect.y1:>5.0f}) "
+                f"items={items} fill={fill} stroke={stroke}"
+            )
+        if len(drawings) > 40:
+            print(f"  ... and {len(drawings) - 40} more")
+
+        print("")
+        print("--- EMBEDDED IMAGES ---")
+        images = page.get_images(full=True)
+        print(f"count: {len(images)}")
+        for i, img in enumerate(images):
+            # img tuple: (xref, smask, width, height, bpc, colorspace, alt, name, filter, ...)
+            xref = img[0]
+            width = img[2]
+            height = img[3]
+            filt = img[8] if len(img) > 8 else "?"
+            print(f"  [{i:>3}] xref={xref} {width}x{height} filter={filt}")
+
+        print("")
+        print("--- FONTS ---")
+        fonts = page.get_fonts(full=True)
+        print(f"count: {len(fonts)}")
+        for font in fonts:
+            # font tuple: (xref, ext, type, basefont, name, encoding, ...)
+            xref = font[0]
+            ftype = font[2] if len(font) > 2 else "?"
+            basefont = font[3] if len(font) > 3 else "?"
+            name = font[4] if len(font) > 4 else "?"
+            print(f"  xref={xref} type={ftype} basefont={basefont!r} name={name!r}")
+
+        return 0
+    finally:
+        doc.close()
+
+
 def cmd_generate_stats(args):
     """Generate animated SVG stats badge."""
     storage = CorpusStorage(args.base_dir)
@@ -458,6 +620,51 @@ def main():
     # mcp-serve command
     mcp_parser = subparsers.add_parser("mcp-serve", help="Start MCP server")
     mcp_parser.set_defaults(func=cmd_mcp_serve)
+
+    # extract-preview command (feature 002 calibration tool)
+    preview_parser = subparsers.add_parser(
+        "extract-preview",
+        help="Preview new PDF extraction without writing to corpus",
+    )
+    preview_parser.add_argument("pdf_path", help="Path to PDF file")
+    preview_parser.add_argument(
+        "--catalog",
+        action="store_true",
+        help="Emit the image-frequency table only — no extraction, no files written.",
+    )
+    preview_parser.add_argument(
+        "--debug-page",
+        type=int,
+        default=None,
+        help="Dump structural anatomy of one page (text blocks, drawings, images, fonts).",
+    )
+    preview_parser.add_argument(
+        "--catalog-top",
+        type=int,
+        default=None,
+        help="With --catalog, show only the top N most-frequent images.",
+    )
+    preview_parser.add_argument(
+        "--pages",
+        help="Page range to extract, 1-indexed (e.g. '1-10' or '5'). Default: all pages.",
+    )
+    preview_parser.add_argument(
+        "--output",
+        help="Output directory (default: preview-<pdf-stem>/)",
+    )
+    preview_parser.add_argument(
+        "--repetition-threshold",
+        type=int,
+        default=3,
+        help="Filter images appearing >= this many times in the doc (default: 3)",
+    )
+    preview_parser.add_argument(
+        "--min-image-dim",
+        type=int,
+        default=50,
+        help="Safety floor: minimum image dimension in px (default: 50)",
+    )
+    preview_parser.set_defaults(func=cmd_extract_preview)
 
     # generate-stats command
     stats_parser = subparsers.add_parser("generate-stats", help="Generate stats SVG badge")
