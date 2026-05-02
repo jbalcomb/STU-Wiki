@@ -70,3 +70,8 @@ corpus/
 
 # PDF extraction preview output (feature 002 calibration scratch space)
 preview-*/
+
+# Test fixture images for PDF extraction. The .md fixtures reference these
+# by filename; regenerate locally via tests/python/fixtures/pdf_extraction/regen.py
+# (requires data/pdf/*.pdf which is also gitignored).
+tests/python/fixtures/pdf_extraction/images/
