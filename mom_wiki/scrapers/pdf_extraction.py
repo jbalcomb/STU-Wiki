@@ -204,6 +204,49 @@ def build_catalog(file_path: Path) -> ImageCatalog:
     return catalog
 
 
+def _normalize_block_text(text: str) -> str:
+    """Collapse intra-block soft line breaks while preserving bullet-list structure.
+
+    PyMuPDF returns block text containing `\\n` for every visual line break
+    inside the block — including word-by-word breaks when text wraps tightly
+    around an image (each word becomes its own showtext op). Treating those
+    as line breaks produces output where every word of a justified paragraph
+    sits on its own line.
+
+    The right move for prose is to flatten internal newlines to spaces.
+    Exception: a line containing nothing but a bullet marker ("•", "*", "-",
+    "·") is the start of a new bullet item and *should* end the previous
+    paragraph. Output: each bullet item becomes its own paragraph, prefixed
+    with "• ", and content lines are joined with single spaces.
+    """
+    if not text:
+        return ""
+
+    BULLET_MARKERS = {"•", "*", "-", "·"}
+    lines = [line.strip() for line in text.split("\n")]
+
+    paragraphs: list[str] = []
+    current_lines: list[str] = []
+    current_is_bullet = False
+
+    def flush() -> None:
+        if not current_lines:
+            return
+        prefix = "• " if current_is_bullet else ""
+        paragraphs.append(prefix + " ".join(current_lines))
+
+    for line in lines:
+        if line in BULLET_MARKERS:
+            flush()
+            current_lines = []
+            current_is_bullet = True
+        elif line:
+            current_lines.append(line)
+
+    flush()
+    return "\n\n".join(paragraphs)
+
+
 def _assemble_page_text(page) -> str:
     """Assemble page text in visual reading order, merging illuminated
     initials back into their paragraphs.
@@ -223,7 +266,6 @@ def _assemble_page_text(page) -> str:
          join with paragraph breaks.
     """
     INITIAL_MAX_WIDTH = 30  # pt; illuminated initial bbox is narrow
-    LINE_GROUPING_TOLERANCE = 5  # pt; blocks within this y-distance count as same line
 
     raw_blocks = page.get_text("blocks")
     # Each block: (x0, y0, x1, y1, text, block_no, block_type)
@@ -243,7 +285,8 @@ def _assemble_page_text(page) -> str:
         if is_initial:
             initials.append(block)
         else:
-            body.append(block)
+            normalized = _normalize_block_text(text)
+            body.append((x0, y0, x1, y1, normalized, block[5], block[6]))
 
     # Map: body-block index -> initial character to prepend.
     #
@@ -267,23 +310,48 @@ def _assemble_page_text(page) -> str:
         if best_idx is not None and best_idx not in attachments:
             attachments[best_idx] = itext.strip()
 
-    # Sort body blocks into visual reading order: by line (rounded y), then x.
-    indexed = list(enumerate(body))
-    indexed.sort(key=lambda pair: (
-        round(pair[1][1] / LINE_GROUPING_TOLERANCE),
-        pair[1][0],
-    ))
-
-    parts: list[str] = []
-    for j, (_, _, _, _, btext, _, _) in indexed:
+    # Build a list of (top_y, left_x, text) entries, then group into visual
+    # lines so that multiple blocks on the same y-line (e.g. a "•" bullet
+    # block followed by its body block, or text wrapping tightly around an
+    # image where each word becomes its own block) join with spaces rather
+    # than paragraph breaks.
+    entries: list[tuple[float, float, float, str]] = []
+    for j, (bx0, by0, bx1, by1, btext, _, _) in enumerate(body):
         chunk = (btext or "").strip()
         if not chunk:
             continue
         if j in attachments:
             chunk = attachments[j] + chunk
-        parts.append(chunk)
+        entries.append((by0, by1, bx0, chunk))
 
-    return "\n\n".join(parts).strip()
+    entries.sort(key=lambda entry: (entry[0], entry[2]))
+
+    lines: list[str] = []
+    current_line: list[tuple[float, str]] = []
+    current_y_bottom: float | None = None
+    for top_y, bottom_y, left_x, chunk in entries:
+        on_same_line = (
+            current_y_bottom is not None
+            and top_y < current_y_bottom - 1  # generous y-overlap check
+        )
+        if on_same_line:
+            current_line.append((left_x, chunk))
+            current_y_bottom = max(current_y_bottom, bottom_y)
+        else:
+            if current_line:
+                lines.append(_join_line(current_line))
+            current_line = [(left_x, chunk)]
+            current_y_bottom = bottom_y
+    if current_line:
+        lines.append(_join_line(current_line))
+
+    return "\n\n".join(lines).strip()
+
+
+def _join_line(line_entries: list[tuple[float, str]]) -> str:
+    """Sort a single visual line by x and join chunks with single spaces."""
+    line_entries.sort(key=lambda e: e[0])
+    return " ".join(text for _, text in line_entries)
 
 
 def _catalog_image(doc, xref: int) -> CatalogedImage | None:
