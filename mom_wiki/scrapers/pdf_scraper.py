@@ -1,4 +1,11 @@
-"""PDF scraper using PyMuPDF."""
+"""PDF scraper backed by mom_wiki.scrapers.pdf_extraction.
+
+The previous implementation classified pages as text/image/mixed and rendered
+the entire page as a 2× PNG whenever an embedded image (even a small drop
+cap) tripped the threshold — turning text-heavy pages into image dumps.
+This file is now a thin adapter around the new text-first extraction module
+(see specs/002-pdf-extraction-improvements/spec.md and Principle VI).
+"""
 
 from pathlib import Path
 from typing import Generator
@@ -6,23 +13,13 @@ import logging
 
 from ..models import Source, SourceType, Node, NodeType
 from .base import BaseScraper, ScrapedContent
+from .pdf_extraction import build_catalog, extract_pdf
 
 logger = logging.getLogger(__name__)
 
-# Page classification thresholds
-MIN_TEXT_CHARS = 100  # Pages with less text are considered image-dominant
-MIN_IMAGE_SIZE = 10000  # Minimum pixel area (width * height) to count as significant
-
-
-class PageType:
-    """Page classification types."""
-    TEXT = "text"
-    IMAGE = "image"
-    MIXED = "mixed"
-
 
 class PDFScraper(BaseScraper):
-    """Scraper for PDF documents using PyMuPDF (fitz)."""
+    """Scraper for PDF documents using the text-first extraction module."""
 
     def __init__(self, storage):
         super().__init__(storage)
@@ -30,161 +27,68 @@ class PDFScraper(BaseScraper):
         self.images_dir.mkdir(parents=True, exist_ok=True)
 
     def can_handle(self, source: Source) -> bool:
-        """Check if this scraper can handle the source."""
         return source.type == SourceType.PDF
 
     def scrape(self, source: Source) -> Generator[ScrapedContent, None, None]:
-        """Extract text and images from a PDF file."""
-        file_path = Path(source.location)
+        """Extract text + non-decorative images from a PDF, yielding one
+        ScrapedContent per file.
 
+        Idempotent ingestion (per feature 001) keys documents by
+        (source_id, file_path), so re-scraping the same PDF updates the
+        existing document in place rather than creating a new UUID.
+        """
+        file_path = Path(source.location)
         if not file_path.exists():
             raise FileNotFoundError(f"PDF file not found: {file_path}")
 
         try:
-            import fitz  # PyMuPDF
-        except ImportError:
-            raise ImportError("PyMuPDF not installed. Run: pip install PyMuPDF")
-
-        try:
-            doc = fitz.open(str(file_path))
-        except Exception as e:
-            logger.error(f"Failed to open PDF {file_path}: {e}")
+            catalog = build_catalog(file_path)
+            result = extract_pdf(file_path, catalog=catalog)
+        except Exception as exc:
+            logger.error(f"Failed to extract PDF {file_path}: {exc}")
             raise
 
-        # Generate a document ID for image naming
-        doc_id = file_path.stem
+        # Persist images, fallback renders, and title-art renders into the
+        # corpus's shared images directory. The markdown emitted below
+        # references them with paths relative to the markdown file's
+        # location (corpus/content/<id>.md → ../images/<filename>).
+        title_art_count = 0
+        for page in result.pages:
+            for image in page.images:
+                (self.images_dir / image.filename).write_bytes(image.data)
+            if page.fallback_render is not None:
+                (self.images_dir / page.fallback_filename).write_bytes(page.fallback_render)
+            if page.title_art is not None:
+                (self.images_dir / page.title_art.filename).write_bytes(page.title_art.data)
+                title_art_count += 1
 
-        # Process each page
-        content_parts = []
-        page_metadata = []
-        images_extracted = 0
-
-        for page_num, page in enumerate(doc, start=1):
-            page_content, page_info = self._process_page(
-                doc, page, page_num, doc_id
-            )
-            if page_content:
-                content_parts.append(page_content)
-                page_metadata.append(page_info)
-                if page_info.get("has_image"):
-                    images_extracted += 1
-
-        content = "\n\n".join(content_parts)
-        doc.close()
-
-        if not content.strip():
+        markdown = result.to_markdown(image_dir="../images")
+        if not markdown.strip():
             logger.warning(f"No content extracted from {file_path}")
             return
 
-        # Create title from filename
         title = file_path.stem.replace("_", " ").replace("-", " ").title()
 
-        # Create a page-type node
         node = Node(
             type=NodeType.PAGE,
             name=title,
             summary=f"PDF document: {file_path.name}",
-            content=content[:1000]  # First 1000 chars as content preview
+            content=markdown[:1000],
         )
 
         yield ScrapedContent(
             title=title,
-            content=content,
+            content=markdown,
             file_path=str(file_path),
             metadata={
                 "source_type": "pdf",
-                "page_count": len(content_parts),
-                "images_extracted": images_extracted,
-                "pages": page_metadata,
+                "page_count": len(result.pages),
+                "image_count": result.total_images,
+                "fallback_render_count": result.total_fallbacks,
+                "title_art_count": title_art_count,
             },
-            nodes=[node]
+            nodes=[node],
         )
-
-    def _process_page(self, doc, page, page_num: int, doc_id: str) -> tuple[str, dict]:
-        """Process a single page and return content and metadata."""
-        import fitz
-
-        text = page.get_text("text").strip()
-        images = page.get_images()
-
-        # Classify the page
-        page_type = self._classify_page(text, images)
-
-        page_info = {
-            "page": page_num,
-            "type": page_type,
-            "text_length": len(text),
-            "image_count": len(images),
-            "has_image": False,
-        }
-
-        # Build content based on page type
-        if page_type == PageType.TEXT:
-            # Text-only page
-            content = f"## Page {page_num}\n\n{text}"
-
-        elif page_type == PageType.IMAGE:
-            # Image-dominant page - extract and save the image
-            image_path = self._extract_page_image(doc, page, page_num, doc_id)
-            if image_path:
-                page_info["has_image"] = True
-                page_info["image_path"] = str(image_path)
-                # Include any text as a caption/title
-                caption = text if text else f"Page {page_num}"
-                content = f"## Page {page_num}\n\n![{caption}]({image_path})"
-            else:
-                # Fallback to text if image extraction fails
-                content = f"## Page {page_num}\n\n{text}" if text else ""
-
-        else:  # MIXED
-            # Both text and images - extract image and include text
-            image_path = self._extract_page_image(doc, page, page_num, doc_id)
-            if image_path:
-                page_info["has_image"] = True
-                page_info["image_path"] = str(image_path)
-                content = f"## Page {page_num}\n\n![Page {page_num} Image]({image_path})\n\n{text}"
-            else:
-                content = f"## Page {page_num}\n\n{text}"
-
-        return content, page_info
-
-    def _classify_page(self, text: str, images: list) -> str:
-        """Classify a page as text, image, or mixed."""
-        has_significant_text = len(text) >= MIN_TEXT_CHARS
-        has_significant_image = any(
-            img[2] * img[3] >= MIN_IMAGE_SIZE for img in images
-        ) if images else False
-
-        if has_significant_text and has_significant_image:
-            return PageType.MIXED
-        elif has_significant_image:
-            return PageType.IMAGE
-        else:
-            return PageType.TEXT
-
-    def _extract_page_image(self, doc, page, page_num: int, doc_id: str) -> str | None:
-        """Extract the page as an image and save it."""
-        try:
-            import fitz
-
-            # Render page to a pixmap (image)
-            # Use a reasonable resolution (2x for clarity)
-            mat = fitz.Matrix(2, 2)
-            pix = page.get_pixmap(matrix=mat)
-
-            # Save as PNG
-            image_filename = f"{doc_id}-page-{page_num}.png"
-            image_path = self.images_dir / image_filename
-            pix.save(str(image_path))
-
-            logger.info(f"Extracted image: {image_filename}")
-
-            # Return relative path for markdown reference
-            return f"images/{image_filename}"
-
-        except Exception as e:
-            logger.error(f"Failed to extract image from page {page_num}: {e}")
-            return None
 
     def extract_toc(self, file_path: str) -> list[dict]:
         """Extract table of contents from PDF."""
