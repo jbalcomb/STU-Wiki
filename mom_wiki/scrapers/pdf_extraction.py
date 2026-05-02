@@ -204,6 +204,88 @@ def build_catalog(file_path: Path) -> ImageCatalog:
     return catalog
 
 
+def _assemble_page_text(page) -> str:
+    """Assemble page text in visual reading order, merging illuminated
+    initials back into their paragraphs.
+
+    The default `page.get_text("text")` emits text blocks in PDF stream
+    order, which scatters illuminated initials away from the body
+    paragraph they belong to. We instead:
+
+      1. Identify "initial" candidates: text blocks containing a single
+         capital letter in a narrow bbox (width < INITIAL_MAX_WIDTH).
+      2. For each initial, find the body text block whose y-range
+         overlaps and whose left edge is closest to the right of the
+         initial's right edge — that's the paragraph it adorns.
+      3. Prepend the initial's character to that body block's text.
+      4. Sort all remaining (non-initial) blocks in reading order
+         (top-to-bottom, left-to-right within a tolerance band) and
+         join with paragraph breaks.
+    """
+    INITIAL_MAX_WIDTH = 30  # pt; illuminated initial bbox is narrow
+    LINE_GROUPING_TOLERANCE = 5  # pt; blocks within this y-distance count as same line
+
+    raw_blocks = page.get_text("blocks")
+    # Each block: (x0, y0, x1, y1, text, block_no, block_type)
+    text_blocks = [b for b in raw_blocks if len(b) >= 7 and b[6] == 0]
+
+    initials: list[tuple] = []
+    body: list[tuple] = []
+    for block in text_blocks:
+        x0, y0, x1, y1, text, _, _ = block
+        clean = (text or "").strip()
+        is_initial = (
+            len(clean) == 1
+            and clean.isalpha()
+            and clean.isupper()
+            and (x1 - x0) < INITIAL_MAX_WIDTH
+        )
+        if is_initial:
+            initials.append(block)
+        else:
+            body.append(block)
+
+    # Map: body-block index -> initial character to prepend.
+    #
+    # Match by y-overlap alone. A multi-line paragraph's bbox uses the
+    # leftmost x across all wrapped lines, so the body block can start
+    # *to the left of* the illuminated initial; a strict "body must be
+    # to the right" check would miss those. Y-overlap is sufficient
+    # because illuminated initials sit within the vertical span of the
+    # paragraph they adorn.
+    attachments: dict[int, str] = {}
+    for ix0, iy0, ix1, iy1, itext, _, _ in initials:
+        best_idx = None
+        best_overlap = 0
+        for j, (bx0, by0, bx1, by1, _, _, _) in enumerate(body):
+            y_overlap = min(iy1, by1) - max(iy0, by0)
+            if y_overlap <= 0:
+                continue
+            if y_overlap > best_overlap:
+                best_overlap = y_overlap
+                best_idx = j
+        if best_idx is not None and best_idx not in attachments:
+            attachments[best_idx] = itext.strip()
+
+    # Sort body blocks into visual reading order: by line (rounded y), then x.
+    indexed = list(enumerate(body))
+    indexed.sort(key=lambda pair: (
+        round(pair[1][1] / LINE_GROUPING_TOLERANCE),
+        pair[1][0],
+    ))
+
+    parts: list[str] = []
+    for j, (_, _, _, _, btext, _, _) in indexed:
+        chunk = (btext or "").strip()
+        if not chunk:
+            continue
+        if j in attachments:
+            chunk = attachments[j] + chunk
+        parts.append(chunk)
+
+    return "\n\n".join(parts).strip()
+
+
 def _catalog_image(doc, xref: int) -> CatalogedImage | None:
     """Decode one image by xref, return its bytes + hash, or None on failure."""
     import fitz
@@ -298,7 +380,7 @@ def _extract_page(
     page = doc[page_idx]
     page_num = page_idx + 1
 
-    text = page.get_text("text").strip()
+    text = _assemble_page_text(page)
     images: list[ExtractedImage] = []
     notes: list[str] = []
     skipped_repeating = 0
