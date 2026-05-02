@@ -283,13 +283,29 @@ def cmd_extract_preview(args):
 
     Does NOT touch the corpus. Used during feature 002 calibration so a human
     can walk through extracted output page by page and adjust thresholds.
+
+    Two modes:
+      - default: extract pages and write markdown + images to a preview dir.
+      - --catalog: emit only the image-frequency table (no extraction).
     """
-    from .scrapers.pdf_extraction import extract_pdf, write_extraction
+    from .scrapers.pdf_extraction import (
+        build_catalog,
+        extract_pdf,
+        format_catalog_table,
+        write_extraction,
+    )
 
     pdf_path = Path(args.pdf_path)
     if not pdf_path.exists():
         print(f"PDF not found: {pdf_path}", file=sys.stderr)
         return 1
+
+    if args.catalog:
+        print(f"Cataloging {pdf_path.name}...", file=sys.stderr)
+        catalog = build_catalog(pdf_path)
+        print("")
+        print(format_catalog_table(catalog, top=args.catalog_top))
+        return 0
 
     page_range = None
     if args.pages:
@@ -306,21 +322,30 @@ def cmd_extract_preview(args):
     print(f"Extracting {pdf_path.name}...", file=sys.stderr)
     if page_range:
         print(f"  pages {page_range[0]}-{page_range[1]}", file=sys.stderr)
-    print(f"  min image dimension: {args.min_image_dim}px", file=sys.stderr)
+    print(f"  repetition threshold: {args.repetition_threshold}", file=sys.stderr)
+    print(f"  min image dimension:  {args.min_image_dim}px", file=sys.stderr)
 
     result = extract_pdf(
         pdf_path,
         page_range=page_range,
+        repetition_threshold=args.repetition_threshold,
         min_image_dim=args.min_image_dim,
     )
 
     markdown_path, images_dir = write_extraction(result, output_dir)
 
+    catalog = result.catalog
+    repeating_xrefs = sum(
+        1 for x, info in catalog.images.items()
+        if catalog.is_repeating(x, info.sha256, args.repetition_threshold)
+    ) if catalog else 0
+
     print("", file=sys.stderr)
-    print(f"Pages extracted:  {len(result.pages)}", file=sys.stderr)
-    print(f"Embedded images:  {result.total_images}", file=sys.stderr)
-    print(f"Fallback renders: {result.total_fallbacks}", file=sys.stderr)
-    print(f"", file=sys.stderr)
+    print(f"Pages extracted:        {len(result.pages)}", file=sys.stderr)
+    print(f"Embedded images kept:   {result.total_images}", file=sys.stderr)
+    print(f"Decoration filtered:    {repeating_xrefs} unique image(s) flagged as repeating", file=sys.stderr)
+    print(f"Fallback page renders:  {result.total_fallbacks}", file=sys.stderr)
+    print("", file=sys.stderr)
     print(f"Markdown: {markdown_path}", file=sys.stderr)
     print(f"Images:   {images_dir}", file=sys.stderr)
     return 0
@@ -514,6 +539,17 @@ def main():
     )
     preview_parser.add_argument("pdf_path", help="Path to PDF file")
     preview_parser.add_argument(
+        "--catalog",
+        action="store_true",
+        help="Emit the image-frequency table only — no extraction, no files written.",
+    )
+    preview_parser.add_argument(
+        "--catalog-top",
+        type=int,
+        default=None,
+        help="With --catalog, show only the top N most-frequent images.",
+    )
+    preview_parser.add_argument(
         "--pages",
         help="Page range to extract, 1-indexed (e.g. '1-10' or '5'). Default: all pages.",
     )
@@ -522,10 +558,16 @@ def main():
         help="Output directory (default: preview-<pdf-stem>/)",
     )
     preview_parser.add_argument(
+        "--repetition-threshold",
+        type=int,
+        default=3,
+        help="Filter images appearing >= this many times in the doc (default: 3)",
+    )
+    preview_parser.add_argument(
         "--min-image-dim",
         type=int,
-        default=200,
-        help="Minimum image dimension (px) to be considered non-decorative (default: 200)",
+        default=50,
+        help="Safety floor: minimum image dimension in px (default: 50)",
     )
     preview_parser.set_defaults(func=cmd_extract_preview)
 
