@@ -189,6 +189,70 @@ def _safe_listify(item: Any) -> list[str]:
     return out
 
 
+def fetch_all_page_titles(
+    session,
+    namespace: int = 0,
+    page_size: int = 500,
+    progress=None,
+) -> tuple[list[str], int]:
+    """Enumerate every page title in a namespace via `action=query&list=allpages`.
+
+    Args:
+        session: requests.Session with our identifying User-Agent set.
+        namespace: MediaWiki namespace id. 0 is main (content) pages. Other
+            useful values: 14 = Category, 6 = File. Talk namespaces are odd
+            numbered. Default is 0 — the corpus target.
+        page_size: API limit per call. 500 is the max for unauthenticated
+            users; using the max minimizes the number of round trips.
+        progress: optional callable(batch_count, running_total) for progress.
+
+    Returns:
+        (sorted list of page titles, number of API calls made)
+
+    Walks the `continue` token pagination loop until exhausted. Each request
+    goes through `polite_get` so the rate limit applies.
+    """
+    titles: list[str] = []
+    apcontinue: str | None = None
+    request_count = 0
+
+    while True:
+        params: dict[str, Any] = {
+            "action": "query",
+            "list": "allpages",
+            "apnamespace": namespace,
+            "aplimit": page_size,
+            "format": "json",
+        }
+        if apcontinue is not None:
+            params["apcontinue"] = apcontinue
+
+        response = polite_get(session, FANDOM_API, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        request_count += 1
+
+        if "error" in data:
+            raise RuntimeError(f"API error during enumeration: {data['error']}")
+
+        batch = data.get("query", {}).get("allpages", []) or []
+        for page in batch:
+            title = page.get("title")
+            if title:
+                titles.append(title)
+
+        if progress is not None:
+            progress(request_count, len(titles))
+
+        cont = data.get("continue", {})
+        apcontinue = cont.get("apcontinue")
+        if apcontinue is None:
+            break
+
+    titles.sort()
+    return titles, request_count
+
+
 def fetch_via_api(page_title: str, session) -> APIResult:
     """Fetch a single page via the MediaWiki `action=parse` endpoint.
 

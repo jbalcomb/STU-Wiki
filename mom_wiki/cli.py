@@ -284,11 +284,16 @@ def cmd_fandom_preview(args):
     Each page is fetched twice — through the MediaWiki API and through
     plain HTML scraping — and the two results are written to disk for
     human comparison. Does not touch the corpus.
+
+    With --list-pages, instead of fetching specific pages, enumerates
+    every page title in the requested namespace via the allpages API
+    and writes the sorted list to preview-fandom/all-pages.txt.
     """
     import requests
 
     from .scrapers.fandom_preview import (
         USER_AGENT,
+        fetch_all_page_titles,
         fetch_via_api,
         fetch_via_html,
         write_comparison,
@@ -299,6 +304,43 @@ def cmd_fandom_preview(args):
 
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
+
+    if args.list_pages:
+        ns = args.namespace
+        print(
+            f"Enumerating namespace {ns} via allpages... "
+            f"(polite-paced; ~1.5s between requests)",
+            file=sys.stderr,
+        )
+
+        def _progress(reqs, total):
+            print(
+                f"  request {reqs}: {total} titles so far",
+                file=sys.stderr,
+            )
+
+        titles, request_count = fetch_all_page_titles(
+            session,
+            namespace=ns,
+            progress=_progress,
+        )
+
+        out_file = output_dir / f"all-pages-ns{ns}.txt"
+        out_file.write_text("\n".join(titles) + "\n", encoding="utf-8")
+
+        print("", file=sys.stderr)
+        print(f"Total titles:  {len(titles):,}", file=sys.stderr)
+        print(f"API requests:  {request_count}", file=sys.stderr)
+        print(f"Written to:    {out_file}", file=sys.stderr)
+        return 0
+
+    if not args.pages:
+        print(
+            "No pages given. Pass page titles/URLs as positional args, "
+            "or use --list-pages to enumerate the whole namespace.",
+            file=sys.stderr,
+        )
+        return 1
 
     for raw_page in args.pages:
         from .scrapers.fandom_preview import _page_title_from_input
@@ -688,9 +730,23 @@ def main():
     )
     fandom_parser.add_argument(
         "pages",
-        nargs="+",
+        nargs="*",
         help="Wiki page titles or full URLs (e.g. 'Fireball' or "
-             "'https://masterofmagic.fandom.com/wiki/Fireball')",
+             "'https://masterofmagic.fandom.com/wiki/Fireball'). "
+             "Optional when --list-pages is passed.",
+    )
+    fandom_parser.add_argument(
+        "--list-pages",
+        action="store_true",
+        help="Enumerate every page title in the namespace via the API "
+             "(no content fetched). Writes to preview-fandom/all-pages-nsN.txt.",
+    )
+    fandom_parser.add_argument(
+        "--namespace",
+        type=int,
+        default=0,
+        help="MediaWiki namespace id to enumerate with --list-pages "
+             "(default: 0 = main content; 14 = Category; 6 = File).",
     )
     fandom_parser.add_argument(
         "--output",
