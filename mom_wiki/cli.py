@@ -278,6 +278,66 @@ def cmd_mcp_serve(args):
     asyncio.run(serve())
 
 
+def cmd_fandom_preview(args):
+    """Side-by-side API vs HTML PoC for one or more fandom wiki pages.
+
+    Each page is fetched twice — through the MediaWiki API and through
+    plain HTML scraping — and the two results are written to disk for
+    human comparison. Does not touch the corpus.
+    """
+    import requests
+
+    from .scrapers.fandom_preview import (
+        USER_AGENT,
+        fetch_via_api,
+        fetch_via_html,
+        write_comparison,
+    )
+
+    output_dir = Path(args.output) if args.output else Path("preview-fandom")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    session = requests.Session()
+    session.headers.update({"User-Agent": USER_AGENT})
+
+    for raw_page in args.pages:
+        from .scrapers.fandom_preview import _page_title_from_input
+        page_title = _page_title_from_input(raw_page)
+        print(f"Fetching '{page_title}'...", file=sys.stderr)
+
+        api_result = fetch_via_api(page_title, session)
+        if api_result.error:
+            print(f"  API:  FAILED — {api_result.error}", file=sys.stderr)
+        else:
+            print(
+                f"  API:  {len(api_result.parsed_html):,} html / "
+                f"{len(api_result.wikitext):,} wikitext / "
+                f"{len(api_result.categories)} cats / "
+                f"{len(api_result.internal_links)} links / "
+                f"{len(api_result.images)} images / "
+                f"{len(api_result.templates)} templates",
+                file=sys.stderr,
+            )
+
+        html_result = fetch_via_html(page_title, session)
+        if html_result.error:
+            print(f"  HTML: FAILED — {html_result.error}", file=sys.stderr)
+        else:
+            print(
+                f"  HTML: {len(html_result.body_text):,} body / "
+                f"{len(html_result.infoboxes)} infoboxes / "
+                f"{len(html_result.categories)} cats / "
+                f"{len(html_result.internal_links)} links / "
+                f"{len(html_result.images)} images",
+                file=sys.stderr,
+            )
+
+        page_dir = write_comparison(raw_page, output_dir, api_result, html_result)
+        print(f"  → {page_dir}", file=sys.stderr)
+
+    return 0
+
+
 def cmd_extract_preview(args):
     """Run the new PDF extraction logic and write results to a temp directory.
 
@@ -620,6 +680,23 @@ def main():
     # mcp-serve command
     mcp_parser = subparsers.add_parser("mcp-serve", help="Start MCP server")
     mcp_parser.set_defaults(func=cmd_mcp_serve)
+
+    # fandom-preview command (feature 003 calibration tool)
+    fandom_parser = subparsers.add_parser(
+        "fandom-preview",
+        help="Side-by-side API vs HTML PoC for fandom wiki pages",
+    )
+    fandom_parser.add_argument(
+        "pages",
+        nargs="+",
+        help="Wiki page titles or full URLs (e.g. 'Fireball' or "
+             "'https://masterofmagic.fandom.com/wiki/Fireball')",
+    )
+    fandom_parser.add_argument(
+        "--output",
+        help="Output directory (default: preview-fandom/)",
+    )
+    fandom_parser.set_defaults(func=cmd_fandom_preview)
 
     # extract-preview command (feature 002 calibration tool)
     preview_parser = subparsers.add_parser(
