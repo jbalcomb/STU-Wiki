@@ -467,6 +467,253 @@ def fetch_via_html(page_title: str, session) -> HTMLResult:
     )
 
 
+# ---------------------------------------------------------------------------
+# Wikitext-driven structured parsing
+# ---------------------------------------------------------------------------
+
+# Map infobox template names → node-type strings. Drives type inference
+# when a page has a recognized infobox. Names are normalized to spaces
+# before lookup so "Infobox_Race" and "Infobox Race" both match.
+INFOBOX_TYPE_MAP: dict[str, str] = {
+    "Infobox Spell": "spell",
+    "Infobox Fantastic Unit": "unit",
+    "Infobox Normal Unit": "unit",
+    "Infobox Hero": "unit",
+    "Infobox Wizard": "wizard",
+    "Infobox Race": "race",
+    "Infobox Item": "item",
+    "Infobox Building": "building",
+    "Infobox Ability": "ability",
+}
+
+# Fallback: when no infobox is found, look at the page's categories.
+# Order matters — first match wins.
+CATEGORY_TYPE_MAP: dict[str, str] = {
+    "Magical_Realms": "realm",
+    "Magical Realms": "realm",
+    "Wizards": "wizard",
+    "Races": "race",
+    "Units": "unit",
+    "Items": "item",
+    "Buildings": "building",
+    "Abilities": "ability",
+    "Combat_Instants": "spell",
+    "City_Enchantments": "spell",
+    "Global_Enchantments": "spell",
+    "Unit_Enchantments": "spell",
+    "Summoning_Spells": "spell",
+    "Special_Spells": "spell",
+}
+
+
+@dataclass
+class ParsedLink:
+    """An outgoing wikilink with a (preliminary) inferred relationship type."""
+    target: str
+    relationship: str
+
+
+@dataclass
+class ParsedPage:
+    """Structured form of a fandom wiki page, one step removed from the
+    real Document/Node/Relationship corpus models. Calibration-only — the
+    production scraper will translate this into the storage models, but
+    the structural extraction logic lives here so we can iterate on it
+    without dragging the corpus layer into every test."""
+    page_title: str
+    node_type: str
+    infobox_template_name: str | None
+    attributes: dict[str, str] = field(default_factory=dict)
+    summary: str = ""
+    categories: list[str] = field(default_factory=list)
+    outgoing_links: list[ParsedLink] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)
+
+
+def _normalize_template_name(name: str) -> str:
+    """MediaWiki normalizes spaces ↔ underscores in page/template names."""
+    return name.strip().replace("_", " ")
+
+
+# Template name → resolution strategy. Inferred from real seed pages.
+# Names matched after _normalize_template_name (spaces, no underscores).
+
+# Templates that wrap a single value with formatting/icon styling. The
+# semantic content is the LAST positional argument.
+#   {{Mana|15-75}}        → "15-75"
+#   {{Research|560}}      → "560"
+#   {{Melee|Normal|5}}    → "5"
+_WRAP_TEMPLATES = {
+    "Mana", "Research", "Power",
+    "Melee", "Defense", "Resist", "Hits", "Ranged", "Damage",
+    "Movement", "Food", "Production",
+    "To Hit", "To Block",
+    "Figure", "SFU", "MFU",
+}
+
+# Templates whose name IS the realm. The argument is just styling fluff;
+# we want the realm name itself.
+#   {{Chaos|Chaos}}       → "Chaos"
+#   {{Arcane|link=Arcane}}→ "Arcane"
+_REALM_TEMPLATES = {"Chaos", "Life", "Death", "Nature", "Sorcery", "Arcane"}
+
+# Templates that take a list of items and we want to flatten.
+#   {{Bookshelf|Life|Life|Life}}  → "Life, Life, Life"
+_LIST_TEMPLATES = {"Bookshelf"}
+
+
+def _resolve_template(template) -> str:
+    """Render a single template node as its semantic display value."""
+    name = _normalize_template_name(str(template.name))
+
+    if name in _REALM_TEMPLATES:
+        return name
+
+    if name in _WRAP_TEMPLATES:
+        params = list(template.params)
+        if not params:
+            return ""
+        # Last positional argument is conventionally the value
+        value = str(params[-1].value).strip()
+        # Recursively resolve any nested templates inside that value
+        return _normalize_wiki_value(value)
+
+    if name in _LIST_TEMPLATES:
+        items = []
+        for p in template.params:
+            v = str(p.value).strip()
+            if v:
+                items.append(_normalize_wiki_value(v))
+        return ", ".join(items)
+
+    # Unknown template — drop entirely. Better an empty value than noise.
+    return ""
+
+
+def _normalize_wiki_value(value: str) -> str:
+    """Render a wikitext fragment as plain display text.
+
+    Handles wikilinks (`[[X]]` → "X", `[[X|Y]]` → "Y") natively. Templates
+    are resolved via _resolve_template for known patterns; unknown
+    templates are stripped.
+    """
+    import mwparserfromhell
+
+    wikicode = mwparserfromhell.parse(value)
+
+    # Resolve templates first (in reverse order so positions stay stable).
+    # Build a list of (template, replacement) then mutate.
+    replacements = []
+    for tpl in wikicode.filter_templates(recursive=True):
+        replacements.append((tpl, _resolve_template(tpl)))
+    for tpl, replacement in replacements:
+        try:
+            wikicode.replace(tpl, replacement)
+        except ValueError:
+            # Template was already removed by an outer-template replacement
+            pass
+
+    return wikicode.strip_code().strip()
+
+
+def _infer_type_from_categories(categories: list[str]) -> str:
+    """Fallback type inference using category list. Returns 'page' if
+    no recognized category matches."""
+    for cat in categories:
+        if cat in CATEGORY_TYPE_MAP:
+            return CATEGORY_TYPE_MAP[cat]
+    return "page"
+
+
+def _extract_summary(wikicode) -> str:
+    """First non-empty paragraph from the rendered wikitext, stripped of
+    markup. Used as a short description for the node."""
+    text = wikicode.strip_code()
+    # First non-empty line that isn't a section heading
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("="):
+            continue
+        return line[:300]
+    return ""
+
+
+def parse_fandom_page(api_result: APIResult) -> ParsedPage | None:
+    """Parse an APIResult's wikitext into a ParsedPage.
+
+    Returns None if the API result contains an error or empty wikitext.
+    """
+    if api_result.error or not api_result.wikitext:
+        return None
+
+    import mwparserfromhell
+
+    wikicode = mwparserfromhell.parse(api_result.wikitext)
+
+    # First Infobox-prefixed template wins
+    infobox = None
+    for tpl in wikicode.filter_templates(recursive=True):
+        name = _normalize_template_name(str(tpl.name))
+        if name.startswith("Infobox"):
+            infobox = tpl
+            break
+
+    if infobox is not None:
+        infobox_name = _normalize_template_name(str(infobox.name))
+        node_type = INFOBOX_TYPE_MAP.get(infobox_name, "page")
+    else:
+        infobox_name = None
+        node_type = _infer_type_from_categories(api_result.categories)
+
+    attributes: dict[str, str] = {}
+    if infobox is not None:
+        for param in infobox.params:
+            key = str(param.name).strip()
+            if not key:
+                continue
+            value = _normalize_wiki_value(str(param.value))
+            if value:
+                attributes[key] = value
+
+    summary = _extract_summary(wikicode)
+
+    # Extract outgoing wikilinks. Skip namespace-prefixed targets
+    # (Category:, File:, etc.) — those are tags or media, not relationships.
+    seen_targets: set[str] = set()
+    outgoing: list[ParsedLink] = []
+    for link in wikicode.filter_wikilinks():
+        target = str(link.title).strip()
+        if not target:
+            continue
+        if "#" in target:
+            target = target.split("#", 1)[0].strip()
+        if not target:
+            continue
+        if ":" in target.split("/", 1)[0]:
+            continue
+        target = target.replace("_", " ")
+        if target in seen_targets or target.lower() == api_result.page_title.lower():
+            continue
+        seen_targets.add(target)
+        # We can't infer the real relationship type without knowing the
+        # target's node type. Leaving as "links_to" — refinement happens
+        # in a later pass once we have a title→type map across the corpus.
+        outgoing.append(ParsedLink(target=target, relationship="links_to"))
+
+    return ParsedPage(
+        page_title=api_result.page_title,
+        node_type=node_type,
+        infobox_template_name=infobox_name,
+        attributes=attributes,
+        summary=summary,
+        categories=list(api_result.categories),
+        outgoing_links=outgoing,
+        images=list(api_result.images),
+    )
+
+
 def write_comparison(
     page_input: str,
     output_dir: Path,
@@ -486,8 +733,10 @@ def write_comparison(
     page_dir = output_dir / safe
     api_dir = page_dir / "api"
     html_dir = page_dir / "html"
+    parsed_dir = page_dir / "parsed"
     api_dir.mkdir(parents=True, exist_ok=True)
     html_dir.mkdir(parents=True, exist_ok=True)
+    parsed_dir.mkdir(parents=True, exist_ok=True)
 
     # API outputs ----------------------------------------------------------
     if api_result.error:
@@ -541,6 +790,47 @@ def write_comparison(
             encoding="utf-8",
         )
 
+    # Structured parse -----------------------------------------------------
+    parsed: ParsedPage | None = None
+    if not api_result.error:
+        try:
+            parsed = parse_fandom_page(api_result)
+        except Exception as exc:
+            (parsed_dir / "ERROR.txt").write_text(
+                f"{type(exc).__name__}: {exc}", encoding="utf-8"
+            )
+
+    if parsed is not None:
+        # Convert dataclass to JSON manually so nested ParsedLink renders cleanly
+        parsed_dict = {
+            "page_title": parsed.page_title,
+            "node_type": parsed.node_type,
+            "infobox_template_name": parsed.infobox_template_name,
+            "attributes": parsed.attributes,
+            "summary": parsed.summary,
+            "categories": parsed.categories,
+            "outgoing_links": [
+                {"target": link.target, "relationship": link.relationship}
+                for link in parsed.outgoing_links
+            ],
+            "images": parsed.images,
+        }
+        (parsed_dir / "node.json").write_text(
+            json.dumps(parsed_dict, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (parsed_dir / "attributes.txt").write_text(
+            "\n".join(f"{k}: {v}" for k, v in parsed.attributes.items()),
+            encoding="utf-8",
+        )
+        (parsed_dir / "outgoing-links.txt").write_text(
+            "\n".join(
+                f"{link.relationship} -> {link.target}"
+                for link in parsed.outgoing_links
+            ),
+            encoding="utf-8",
+        )
+
     # Summary --------------------------------------------------------------
     lines: list[str] = [f"# Fandom comparison: {page_input}", ""]
 
@@ -574,6 +864,21 @@ def write_comparison(
             f"- categories:      {len(html_result.categories)}",
             f"- internal links:  {len(html_result.internal_links)}",
             f"- images:          {len(html_result.images)}",
+        ])
+    lines.append("")
+
+    lines.append("## Parsed (structured)")
+    if parsed is None:
+        lines.append("- (skipped — API result had error or empty wikitext)")
+    else:
+        lines.extend([
+            f"- node type:       {parsed.node_type}",
+            f"- infobox:         {parsed.infobox_template_name or '(none)'}",
+            f"- attributes:      {len(parsed.attributes)}",
+            f"- categories:      {len(parsed.categories)}",
+            f"- outgoing links:  {len(parsed.outgoing_links)}",
+            f"- images:          {len(parsed.images)}",
+            f"- summary:         {parsed.summary[:120]!r}{'...' if len(parsed.summary) > 120 else ''}",
         ])
     lines.append("")
 
