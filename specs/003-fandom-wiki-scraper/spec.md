@@ -29,26 +29,24 @@ The existing `web_scraper.py` is a usable starting point but not the destination
 - **Talk / discussion pages.** Editorial-side artifacts, not corpus content.
 - **User pages.** Same.
 
+## Decisions
+
+- **HTML scraping vs MediaWiki API → PoC both, then decide.** Don't pre-commit. First calibration step is a side-by-side proof of concept on a handful of seed pages: fetch each via fandom's MediaWiki API (`/api.php?action=parse&page=X&prop=text|sections|categories|links|images|templates|wikitext`) *and* via plain HTML scraping, dump both outputs, eyeball the difference. Pick the winner based on what we actually see — content quality, infobox fidelity, decoration leakage, brittleness under change.
+- **Crawl strategy → all of `masterofmagic.fandom.com`.** We want the whole sub-domain, not a curated subset. Preferred enumeration path: the MediaWiki API's `action=query&list=allpages&apnamespace=0` gives every content page in one paginated walk. If for some reason the API path is unavailable or unsuitable (decided in the PoC step), fall back to seed-and-follow from the wiki home page (`https://masterofmagic.fandom.com/wiki/Master_of_Magic_Wiki`), enqueueing every internal wiki link, deduplicating, and respecting the same-subdomain constraint.
+- **Image handling → download + track attribution.** Fandom hosts images on its CDN (`static.wikia.nocookie.net`); the URLs change and content can be removed, so we must keep our own copy. Persist into `corpus/images/` per the existing pattern. **Track attribution metadata** alongside each image — original CDN URL, source page URL, license (CC-BY-SA 3.0 by default for fandom content), uploader if exposed by the API, and modification date. This is a license requirement (CC-BY-SA 3.0 mandates attribution and share-alike), not a nice-to-have, if the corpus is going to be redistributable. Schema for this: per-image JSON sidecar in `corpus/images/<name>.json`, or a top-level `corpus/attributions.json` keyed by filename. To decide.
+
 ## Open questions (resolve during calibration)
 
-- **HTML scraping vs MediaWiki API.** Fandom exposes the standard MediaWiki API at `/api.php`. The API is more reliable and gives us structured data (page metadata, parsed wikitext, infobox templates) without HTML-parsing brittleness. HTML scraping is "what you see is what you get" but tied to fandom's UI changes. Probably API for content, but we should look at both during calibration. Specifically interesting: `action=parse&page=X&prop=text|sections|categories|links|images|templates|wikitext`.
-- **Crawl strategy.** Three obvious options:
-  - **Seed-and-follow:** start from a small set of root pages, follow internal wiki links, deduplicate, stop at depth or count limit.
-  - **Category traversal:** walk all categories (Spells, Units, Wizards, Items, etc.) and ingest their members. Maps naturally to `Node.type`.
-  - **`allpages` enumeration:** ask the API for every page in the main namespace, ingest each. Most exhaustive but least filtered.
-  Likely category traversal is the best fit — the structure is meaningful and aligns with our node taxonomy.
-- **Infobox parsing.** Fandom infoboxes are wiki templates that render as structured tables. They contain the data we most want for `Node.attributes` (realm, cost, upkeep, melee/ranged/defense for units, abilities, etc.). Decisions:
-  - Parse via the API's `prop=parsetree` (gives the template invocation directly with parameter names) or via post-render HTML pattern-matching.
-  - Map common parameter names (`realm`, `cost`, `rarity`, etc.) to `Node.attributes` keys.
+- **Infobox parsing.** Fandom infoboxes are wiki templates that render as structured tables. They contain the data we most want for `Node.attributes` (realm, cost, upkeep, melee/ranged/defense for units, abilities, etc.). Decisions to make:
+  - Parse via the API's `prop=parsetree` / `prop=wikitext` (gives the template invocation with parameter names directly) or via post-render HTML pattern-matching against `aside.portable-infobox` / `table.infobox` selectors.
+  - Map common parameter names (`realm`, `cost`, `rarity`, etc.) to `Node.attributes` keys. Need a real survey of which names appear; the PoC's first job is to dump infobox params for each seed page so we can see the real keyspace.
 - **Link extraction → Relationships.** Internal wiki links from one page to another are the natural source of graph relationships. A spell page that links to a realm page → `belongs_to` edge. A unit page that links to abilities → `has_ability` edges. Heuristic: link target's inferred type vs source page's type.
-- **Image handling.** Fandom hosts images on its CDN (`static.wikia.nocookie.net`). Two options:
-  - **Reference by URL:** link to the CDN; corpus stays small, but breaks if fandom changes URLs or goes away.
-  - **Download:** persist into `corpus/images/` like PDF extraction does. More work, more disk, more durable.
+- **Attribution storage shape.** Per-image JSON sidecars vs a single `corpus/attributions.json` index vs extending `Document.metadata`. Per-image is robust to deletion; a single index is easier to query. Decide once we see how many images we're actually pulling.
 - **Rate limiting + politeness.** Existing scraper uses 1.0s between requests. Fandom has no documented hard limit but typical convention is 1 req/sec for unauthenticated scraping. Decision: keep at 1s default; respect any 429s with backoff.
-- **Robots.txt.** Existing config has `respect_robots_txt: true` but the scraper doesn't actually check it. Wire it up.
+- **Robots.txt.** Existing config has `respect_robots_txt: true` but the scraper doesn't actually check it. Wire it up before going wide.
 - **Caching.** During calibration we'll fetch the same page repeatedly. Worth a local HTTP cache (e.g. `requests-cache`) so re-runs don't re-hammer fandom?
 - **Decoration filtering.** Like PDF extraction had drop caps, fandom has predictable site chrome (header banner, sidebar, "Explore properties" footer, edit links, "On this wiki" boxes, ads if any). The MediaWiki-aware `mw-parser-output` selector already cuts most of this; we'll see what leaks during calibration.
-- **Disambiguation pages and redirects.** Skip disambiguation, follow redirects.
+- **Disambiguation pages and redirects.** Skip disambiguation pages; follow redirects.
 
 ## What to learn from feature 002 (PDF extraction)
 
